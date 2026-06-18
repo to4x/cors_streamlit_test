@@ -59,8 +59,8 @@ if popup_url.startswith(("http://", "https://")):
     target_origin_js = json.dumps(target_origin.strip())
     keep_opener_js = "true" if keep_opener_link else "false"
 
-    # Fire-and-forget: pass payload as-is without validation
-    payload_json_str = message_payload
+    # Fire-and-forget: escape payload as JSON string for JS injection safety
+    payload_json_str = json.dumps(message_payload)
 
     components.html(
         f"""
@@ -82,7 +82,8 @@ if popup_url.startswith(("http://", "https://")):
           const popupUrl = {popup_url_js};
           const expectedOrigin = {target_origin_js};
           const keepOpener = {keep_opener_js};
-          const payload = {payload_json_str};
+          const payloadStr = {payload_json_str};
+          const payload = JSON.parse(payloadStr);
 
           let popupRef = null;
 

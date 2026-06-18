@@ -131,7 +131,7 @@ if popup_url.startswith(("http://", "https://")):
     popup_url_js = json.dumps(popup_url)
     target_origin_js = json.dumps(target_origin.strip())
     keep_opener_js = "true" if keep_opener_link else "false"
-    payload_escaped = json.dumps(message_payload)
+    payload_raw = json.dumps(message_payload)
 
     components.html(
         f"""
@@ -170,7 +170,17 @@ if popup_url.startswith(("http://", "https://")):
           const popupUrl = {popup_url_js};
           const expectedOrigin = {target_origin_js};
           const keepOpener = {keep_opener_js};
-          const payload = {payload_escaped};
+          const payloadStr = {payload_raw};
+          
+          // Parse payload as JSON if possible, otherwise use as-is
+          let payload;
+          try {{
+            payload = JSON.parse(payloadStr);
+            console.log("Payload parsed as JSON object:", payload);
+          }} catch (e) {{
+            payload = payloadStr;
+            console.log("Payload used as raw string:", payload);
+          }}
 
           let popupRef = null;
           let messageCount = 0;
@@ -297,9 +307,12 @@ if popup_url.startswith(("http://", "https://")):
             
             try {{
               const targetOrigin = expectedOrigin || "*";
+              const payloadType = typeof payload === 'object' ? 'JSON object' : 'string';
+              
               append(`Sending postMessage to popup...`);
               append(`Target origin: ${{targetOrigin}}`);
-              append(`Payload: ${{payload}}`);
+              append(`Payload type: ${{payloadType}}`);
+              append(`Payload: ${{JSON.stringify(payload)}}`);
               
               popupRef.postMessage(payload, targetOrigin);
               
@@ -358,9 +371,11 @@ if popup_url.startswith(("http://", "https://")):
             }}
             
             // Test 5: Configuration
+            const payloadType = typeof payload === 'object' ? 'JSON object' : 'string';
             append(`Expected origin: ${{expectedOrigin}}`);
             append(`Keep opener: ${{keepOpener}}`);
             append(`Popup URL: ${{popupUrl}}`);
+            append(`Payload type: ${{payloadType}}`);
             
             append("=== Validation Complete ===\\n");
             updateStatus("Validation tests completed", "info");

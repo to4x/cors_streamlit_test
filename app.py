@@ -98,8 +98,7 @@ if popup_url.startswith(("http://", "https://")):
             }}
           }});
 
-          openBtn.addEventListener("click", () => {{
-            const features = keepOpemouseenter", () => {{
+          openBtn.addEventListener("mouseenter", () => {{
             if (!popupRef || popupRef.closed) {{
               const features = keepOpener ? "" : "noopener,noreferrer";
               popupRef = window.open(popupUrl, "_blank", features);
@@ -110,6 +109,7 @@ if popup_url.startswith(("http://", "https://")):
                 status.textContent = "Popup blocked by browser.";
                 append("Popup blocked.");
               }}
+            }}
           }});
 
           sendBtn.addEventListener("click", () => {{

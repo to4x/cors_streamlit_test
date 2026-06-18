@@ -59,8 +59,8 @@ if popup_url.startswith(("http://", "https://")):
     target_origin_js = json.dumps(target_origin.strip())
     keep_opener_js = "true" if keep_opener_link else "false"
 
-    # Fire-and-forget: escape payload as JSON string for JS injection safety
-    payload_json_str = json.dumps(message_payload)
+    # Fire-and-forget: treat payload as raw JS code for maximum flexibility
+    payload_raw = message_payload
 
     components.html(
         f"""
@@ -82,8 +82,7 @@ if popup_url.startswith(("http://", "https://")):
           const popupUrl = {popup_url_js};
           const expectedOrigin = {target_origin_js};
           const keepOpener = {keep_opener_js};
-          const payloadStr = {payload_json_str};
-          const payload = JSON.parse(payloadStr);
+          const payload = {payload_raw};
 
           let popupRef = null;
 
@@ -100,15 +99,17 @@ if popup_url.startswith(("http://", "https://")):
           }});
 
           openBtn.addEventListener("click", () => {{
-            const features = keepOpener ? "" : "noopener,noreferrer";
-            popupRef = window.open(popupUrl, "_blank", features);
-            if (popupRef) {{
-              status.textContent = "Popup opened.";
-              append("Popup opened. opener link enabled: " + keepOpener);
-            }} else {{
-              status.textContent = "Popup blocked by browser.";
-              append("Popup blocked.");
-            }}
+            const features = keepOpemouseenter", () => {{
+            if (!popupRef || popupRef.closed) {{
+              const features = keepOpener ? "" : "noopener,noreferrer";
+              popupRef = window.open(popupUrl, "_blank", features);
+              if (popupRef) {{
+                status.textContent = "Popup opened.";
+                append("Popup opened. opener link enabled: " + keepOpener);
+              }} else {{
+                status.textContent = "Popup blocked by browser.";
+                append("Popup blocked.");
+              }}
           }});
 
           sendBtn.addEventListener("click", () => {{

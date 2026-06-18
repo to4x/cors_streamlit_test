@@ -59,8 +59,13 @@ if popup_url.startswith(("http://", "https://")):
     target_origin_js = json.dumps(target_origin.strip())
     keep_opener_js = "true" if keep_opener_link else "false"
 
-    # Escape payload as JSON string for safe JS injection (prevents XSS in tester app)
-    payload_escaped = json.dumps(message_payload)
+    # Parse and compact the payload, then escape for JS injection
+    try:
+        payload_obj = json.loads(message_payload)
+        payload_compact = json.dumps(payload_obj, separators=(',', ':'))
+    except:
+        payload_compact = "{}"
+    payload_escaped = json.dumps(payload_compact)
 
     components.html(
         f"""

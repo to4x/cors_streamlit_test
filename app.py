@@ -101,9 +101,6 @@ if popup_url.startswith(("http://", "https://")):
           window.addEventListener("message", (event) => {{
             append("Received message from origin: " + event.origin);
             append("Data: " + JSON.stringify(event.data));
-            if (expectedOrigin && event.origin !== expectedOrigin) {{
-              append("WARNING: origin mismatch. Message should be rejected by production logic.");
-            }}
           }});
 
           openBtn.addEventListener("mouseenter", () => {{

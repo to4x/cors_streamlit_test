@@ -59,8 +59,8 @@ if popup_url.startswith(("http://", "https://")):
     target_origin_js = json.dumps(target_origin.strip())
     keep_opener_js = "true" if keep_opener_link else "false"
 
-    # Fire-and-forget: treat payload as raw JS code for maximum flexibility
-    payload_raw = message_payload
+    # Escape payload as JSON string for safe JS injection (prevents XSS in tester app)
+    payload_escaped = json.dumps(message_payload)
 
     components.html(
         f"""
@@ -82,7 +82,7 @@ if popup_url.startswith(("http://", "https://")):
           const popupUrl = {popup_url_js};
           const expectedOrigin = {target_origin_js};
           const keepOpener = {keep_opener_js};
-          const payload = {payload_raw};
+          const payload = JSON.parse({payload_escaped});
 
           let popupRef = null;
 

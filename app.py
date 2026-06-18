@@ -59,77 +59,68 @@ if popup_url.startswith(("http://", "https://")):
     target_origin_js = json.dumps(target_origin.strip())
     keep_opener_js = "true" if keep_opener_link else "false"
 
-    # Validate payload JSON server-side once so test UI is deterministic.
-    payload_error = None
-    payload_json_str = "null"
-    try:
-        parsed_payload = json.loads(message_payload)
-        payload_json_str = json.dumps(parsed_payload)
-    except Exception as exc:
-        payload_error = str(exc)
+    # Fire-and-forget: pass payload as-is without validation
+    payload_json_str = message_payload
 
-    if payload_error:
-        st.error(f"Payload must be valid JSON: {payload_error}")
-    else:
-        components.html(
-            f"""
-            <div style="font-family: sans-serif;">
-              <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                <button id="open-btn" style="padding:0.5rem 0.8rem;cursor:pointer;">Open popup</button>
-                <button id="send-btn" style="padding:0.5rem 0.8rem;cursor:pointer;">Send postMessage to popup</button>
-              </div>
-              <div id="status" style="margin-top:0.6rem;color:#444;">Ready.</div>
-              <pre id="log" style="margin-top:0.6rem;padding:0.6rem;background:#f7f7f7;border:1px solid #ddd;max-height:220px;overflow:auto;"></pre>
-            </div>
+    components.html(
+        f"""
+        <div style="font-family: sans-serif;">
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+            <button id="open-btn" style="padding:0.5rem 0.8rem;cursor:pointer;">Open popup</button>
+            <button id="send-btn" style="padding:0.5rem 0.8rem;cursor:pointer;">Send postMessage to popup</button>
+          </div>
+          <div id="status" style="margin-top:0.6rem;color:#444;">Ready.</div>
+          <pre id="log" style="margin-top:0.6rem;padding:0.6rem;background:#f7f7f7;border:1px solid #ddd;max-height:220px;overflow:auto;"></pre>
+        </div>
 
-            <script>
-              const status = document.getElementById("status");
-              const log = document.getElementById("log");
-              const openBtn = document.getElementById("open-btn");
-              const sendBtn = document.getElementById("send-btn");
+        <script>
+          const status = document.getElementById("status");
+          const log = document.getElementById("log");
+          const openBtn = document.getElementById("open-btn");
+          const sendBtn = document.getElementById("send-btn");
 
-              const popupUrl = {popup_url_js};
-              const expectedOrigin = {target_origin_js};
-              const keepOpener = {keep_opener_js};
-              const payload = {payload_json_str};
+          const popupUrl = {popup_url_js};
+          const expectedOrigin = {target_origin_js};
+          const keepOpener = {keep_opener_js};
+          const payload = {payload_json_str};
 
-              let popupRef = null;
+          let popupRef = null;
 
-              function append(line) {{
-                log.textContent += (line + "\\n");
-              }}
+          function append(line) {{
+            log.textContent += (line + "\\n");
+          }}
 
-              window.addEventListener("message", (event) => {{
-                append("Received message from origin: " + event.origin);
-                append("Data: " + JSON.stringify(event.data));
-                if (expectedOrigin && event.origin !== expectedOrigin) {{
-                  append("WARNING: origin mismatch. Message should be rejected by production logic.");
-                }}
-              }});
+          window.addEventListener("message", (event) => {{
+            append("Received message from origin: " + event.origin);
+            append("Data: " + JSON.stringify(event.data));
+            if (expectedOrigin && event.origin !== expectedOrigin) {{
+              append("WARNING: origin mismatch. Message should be rejected by production logic.");
+            }}
+          }});
 
-              openBtn.addEventListener("click", () => {{
-                const features = keepOpener ? "" : "noopener,noreferrer";
-                popupRef = window.open(popupUrl, "_blank", features);
-                if (popupRef) {{
-                  status.textContent = "Popup opened.";
-                  append("Popup opened. opener link enabled: " + keepOpener);
-                }} else {{
-                  status.textContent = "Popup blocked by browser.";
-                  append("Popup blocked.");
-                }}
-              }});
+          openBtn.addEventListener("click", () => {{
+            const features = keepOpener ? "" : "noopener,noreferrer";
+            popupRef = window.open(popupUrl, "_blank", features);
+            if (popupRef) {{
+              status.textContent = "Popup opened.";
+              append("Popup opened. opener link enabled: " + keepOpener);
+            }} else {{
+              status.textContent = "Popup blocked by browser.";
+              append("Popup blocked.");
+            }}
+          }});
 
-              sendBtn.addEventListener("click", () => {{
-                if (!popupRef || popupRef.closed) {{
-                  append("No live popup reference. Open popup first.");
-                  return;
-                }}
-                popupRef.postMessage(payload, expectedOrigin || "*");
-                append("Sent postMessage to popup with targetOrigin: " + (expectedOrigin || "*"));
-              }});
-            </script>
-            """,
-            height=420,
-        )
+          sendBtn.addEventListener("click", () => {{
+            if (!popupRef || popupRef.closed) {{
+              append("No live popup reference. Open popup first.");
+              return;
+            }}
+            popupRef.postMessage(payload, expectedOrigin || "*");
+            append("Sent postMessage to popup with targetOrigin: " + (expectedOrigin || "*"));
+          }});
+        </script>
+        """,
+        height=420,
+    )
 else:
     st.error("Popup URL must start with http:// or https://")

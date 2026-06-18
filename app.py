@@ -34,6 +34,28 @@ with st.sidebar:
     
     st.divider()
     
+    st.subheader("WebSocket Testing (CSWSH)")
+    websocket_url = st.text_input(
+        "WebSocket URL",
+        value="ws://localhost:8501/_stcore/stream",
+        placeholder="wss://example.com/ws",
+        help="WebSocket endpoint to test for CSWSH vulnerability"
+    )
+    
+    test_ws_origin = st.toggle(
+        "Test Origin header validation",
+        value=True,
+        help="Check if server validates Origin header during WebSocket handshake"
+    )
+    
+    ws_test_message = st.text_input(
+        "WebSocket test message",
+        value='{"type":"ping","source":"security-test"}',
+        help="Message to send after WebSocket connection is established"
+    )
+    
+    st.divider()
+    
     with st.expander("🔧 Troubleshooting Guide"):
         st.markdown("""
         **Common Issues:**
@@ -103,28 +125,29 @@ with col3:
 
 with st.expander("🔍 Validation Tests", expanded=True):
     st.markdown("""
-    **Active Tests:**
+    **postMessage Tests:**
     - ✓ **Iframe Context Detection**: Verifies if running in iframe or standalone
     - ✓ **Popup Open/Close Tracking**: Real-time popup window state monitoring
     - ✓ **postMessage Send/Receive**: Validates cross-window messaging
     - ✓ **Cross-Origin Security**: Checks origin validation and CORS policy
     - ✓ **Opener Reference**: Verifies window.opener accessibility
     
-    **How to Test:**
-    1. Set your target URL and popup URL in the sidebar
-    2. Configure security settings (opener link, target origin)
-    3. Hover over "Open popup" button to launch popup
-    4. Click "Send postMessage" to test messaging
-    5. Click "Run Validation" to see comprehensive diagnostics
+    **WebSocket Tests (CSWSH):**
+    - ✓ **Connection from Different Origin**: Tests cross-site WebSocket hijacking
+    - ✓ **Cookie Inclusion Detection**: Checks if session cookies are sent
+    - ✓ **Origin Header Validation**: Verifies server-side origin checks
+    - ✓ **Bidirectional Communication**: Tests data send/receive capability
+    - ✓ **Persistent Connection**: Validates ongoing access vulnerability
     
-    **Expected Behaviors:**
-    - Popup should open on hover (may require popup permission)
-    - Messages should appear in the log with timestamps
-    - Origin validation should pass if configured correctly
-    - Opener reference should work if "Keep opener link" is enabled
+    **How to Test:**
+    1. Set your target URL, popup URL, and WebSocket URL in the sidebar
+    2. Configure security settings (opener link, target origin)
+    3. For postMessage: Hover over "Open popup" button, then send messages
+    4. For WebSocket: Click "Connect WebSocket" to test CSWSH vulnerability
+    5. Click validation buttons to see comprehensive diagnostics
     """)
 
-    st.info("💡 Use the validation button in the test interface below to run all diagnostic checks.")
+    st.info("💡 Use the validation buttons in the test interfaces below to run all diagnostic checks.")
 
 st.divider()
 st.subheader("window.open() and postMessage Test")
@@ -438,3 +461,286 @@ if popup_url.startswith(("http://", "https://")):
     )
 else:
     st.error("Popup URL must start with http:// or https://")
+
+st.divider()
+st.subheader("WebSocket Connection Test (CSWSH)")
+st.caption("Test Cross-Site WebSocket Hijacking vulnerability")
+
+with st.expander("📡 About CSWSH", expanded=False):
+    st.markdown("""
+    **Cross-Site WebSocket Hijacking (CSWSH)** exploits:
+    - Cookies automatically sent in WebSocket handshake
+    - Lack of Origin header validation
+    - Persistent bidirectional connection
+    
+    **Attack Flow:**
+    1. Victim visits malicious site while logged into target
+    2. Malicious JavaScript opens WebSocket to target site
+    3. Browser sends session cookies in handshake
+    4. If no origin check → connection established
+    5. Attacker can send/receive data persistently
+    
+    **Mitigation:**
+    - Validate Origin header in handshake
+    - Require CSRF tokens for WebSocket connections
+    - Use SameSite=Strict cookies
+    - Implement authentication beyond cookies
+    """)
+
+if websocket_url:
+    ws_url_js = json.dumps(websocket_url)
+    test_origin_js = "true" if test_ws_origin else "false"
+    ws_message_js = json.dumps(ws_test_message)
+    
+    components.html(
+        f"""
+        <div style="font-family: sans-serif;">
+          <div style="margin-bottom:1rem;padding:0.8rem;background:#fff3cd;border-left:4px solid #ff9800;">
+            <strong>⚠️ WebSocket Security Status:</strong>
+            <div style="margin-top:0.5rem;">
+              <span id="ws-status" style="margin-right:1rem;">⚪ Not Connected</span>
+              <span id="ws-messages" style="margin-right:1rem;">📨 Messages: 0</span>
+              <span id="ws-cookies" style="margin-right:1rem;">🍪 Cookies: Unknown</span>
+            </div>
+          </div>
+          
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
+            <button id="ws-connect" style="padding:0.5rem 0.8rem;cursor:pointer;background:#1976d2;color:white;border:none;border-radius:4px;">Connect WebSocket</button>
+            <button id="ws-send" style="padding:0.5rem 0.8rem;cursor:pointer;background:#388e3c;color:white;border:none;border-radius:4px;">Send Message</button>
+            <button id="ws-close" style="padding:0.5rem 0.8rem;cursor:pointer;background:#d32f2f;color:white;border:none;border-radius:4px;">Close Connection</button>
+            <button id="ws-validate" style="padding:0.5rem 0.8rem;cursor:pointer;background:#f57c00;color:white;border:none;border-radius:4px;">Run CSWSH Tests</button>
+            <button id="ws-clear" style="padding:0.5rem 0.8rem;cursor:pointer;background:#757575;color:white;border:none;border-radius:4px;">Clear Log</button>
+          </div>
+          
+          <div id="ws-info" style="margin-bottom:0.6rem;padding:0.5rem;background:#e3f2fd;border:1px solid #2196f3;border-radius:4px;color:#0d47a1;">Ready to test WebSocket connection</div>
+          <pre id="ws-log" style="padding:0.6rem;background:#f7f7f7;border:1px solid #ddd;border-radius:4px;max-height:350px;overflow:auto;font-size:0.85rem;"></pre>
+        </div>
+
+        <script>
+          const wsInfo = document.getElementById("ws-info");
+          const wsLog = document.getElementById("ws-log");
+          const wsConnectBtn = document.getElementById("ws-connect");
+          const wsSendBtn = document.getElementById("ws-send");
+          const wsCloseBtn = document.getElementById("ws-close");
+          const wsValidateBtn = document.getElementById("ws-validate");
+          const wsClearBtn = document.getElementById("ws-clear");
+          const wsStatusEl = document.getElementById("ws-status");
+          const wsMessagesEl = document.getElementById("ws-messages");
+          const wsCookiesEl = document.getElementById("ws-cookies");
+
+          const wsUrl = {ws_url_js};
+          const testOrigin = {test_origin_js};
+          const testMessage = {ws_message_js};
+
+          let ws = null;
+          let messageCount = 0;
+          let connectionAttempts = 0;
+
+          function wsAppend(line, type = "info") {{
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === "success" ? "✓" : type === "error" ? "✗" : type === "warning" ? "⚠" : type === "vuln" ? "🔴" : "ℹ";
+            wsLog.textContent += `[${{timestamp}}] ${{prefix}} ${{line}}\\n`;
+            wsLog.scrollTop = wsLog.scrollHeight;
+          }}
+
+          function wsUpdateInfo(msg, type = "info") {{
+            wsInfo.textContent = msg;
+            wsInfo.style.background = type === "success" ? "#d4edda" : type === "error" ? "#f8d7da" : type === "warning" ? "#fff3cd" : type === "vuln" ? "#ffebee" : "#e3f2fd";
+            wsInfo.style.borderColor = type === "success" ? "#c3e6cb" : type === "error" ? "#f5c6cb" : type === "warning" ? "#ffc107" : type === "vuln" ? "#f44336" : "#2196f3";
+            wsInfo.style.color = type === "success" ? "#155724" : type === "error" ? "#721c24" : type === "warning" ? "#856404" : type === "vuln" ? "#b71c1c" : "#0d47a1";
+          }}
+
+          function wsUpdateStatus() {{
+            if (ws && ws.readyState === WebSocket.OPEN) {{
+              wsStatusEl.textContent = "🟢 Connected";
+              wsStatusEl.style.color = "#2e7d32";
+            }} else if (ws && ws.readyState === WebSocket.CONNECTING) {{
+              wsStatusEl.textContent = "🟡 Connecting...";
+              wsStatusEl.style.color = "#f57c00";
+            }} else if (ws && ws.readyState === WebSocket.CLOSING) {{
+              wsStatusEl.textContent = "🟠 Closing...";
+              wsStatusEl.style.color = "#ef6c00";
+            }} else {{
+              wsStatusEl.textContent = "🔴 Disconnected";
+              wsStatusEl.style.color = "#c62828";
+            }}
+          }}
+
+          function checkCookies() {{
+            const hasCookies = document.cookie.length > 0;
+            wsCookiesEl.textContent = `🍪 Cookies: ${{hasCookies ? "Present" : "None"}}`;
+            wsCookiesEl.style.color = hasCookies ? "#f57c00" : "#757575";
+            if (hasCookies) {{
+              wsAppend("⚠ Session cookies detected - will be sent in handshake!", "warning");
+              const cookiePreview = document.cookie.substring(0, 100);
+              wsAppend(`Cookies: ${{cookiePreview}}${{document.cookie.length > 100 ? "..." : ""}}`);              
+            }}
+          }}
+
+          wsConnectBtn.addEventListener("click", () => {{
+            if (ws && ws.readyState === WebSocket.OPEN) {{
+              wsAppend("WebSocket already connected", "warning");
+              return;
+            }}
+
+            connectionAttempts++;
+            wsAppend("\\n=== Attempting WebSocket Connection ===");
+            wsAppend(`Target: ${{wsUrl}}`);
+            wsAppend(`Origin: ${{window.location.origin}}`);
+            
+            checkCookies();
+
+            try {{
+              ws = new WebSocket(wsUrl);
+              wsUpdateStatus();
+
+              ws.onopen = (event) => {{
+                wsAppend("✓ WebSocket connection ESTABLISHED!", "success");
+                wsAppend("🔴 VULNERABILITY: Connection succeeded from different origin", "vuln");
+                wsAppend("This means the server accepted cookies without origin validation", "vuln");
+                wsUpdateStatus();
+                wsUpdateInfo("⚠️ CSWSH Vulnerability Detected!", "vuln");
+              }};
+
+              ws.onmessage = (event) => {{
+                messageCount++;
+                wsMessagesEl.textContent = `📨 Messages: ${{messageCount}}`;
+                wsMessagesEl.style.color = "#2e7d32";
+                
+                const dataPreview = event.data.length > 150 ? event.data.substring(0, 150) + "..." : event.data;
+                wsAppend(`Received: ${{dataPreview}}`, "success");
+                wsAppend("🔴 Can read sensitive real-time data!", "vuln");
+              }};
+
+              ws.onerror = (error) => {{
+                wsAppend("✗ WebSocket connection failed", "error");
+                wsAppend("Possible reasons:");
+                wsAppend("  • Origin header validation (✓ SECURE)");
+                wsAppend("  • CSRF token required (✓ SECURE)");
+                wsAppend("  • Network/CORS error");
+                wsAppend("  • Invalid WebSocket URL");
+                wsUpdateStatus();
+                wsUpdateInfo("Connection failed - Server may be protected", "success");
+              }};
+
+              ws.onclose = (event) => {{
+                wsAppend(`Connection closed. Code: ${{event.code}}, Reason: ${{event.reason || "N/A"}}`);
+                if (event.code === 1006) {{
+                  wsAppend("Abnormal closure - likely rejected by server", "warning");
+                }}
+                wsUpdateStatus();
+                wsUpdateInfo("WebSocket disconnected", "info");
+              }};
+
+            }} catch (e) {{
+              wsAppend(`Error: ${{e.message}}`, "error");
+              wsUpdateInfo(`Error: ${{e.message}}`, "error");
+            }}
+          }});
+
+          wsSendBtn.addEventListener("click", () => {{
+            if (!ws || ws.readyState !== WebSocket.OPEN) {{
+              wsAppend("Not connected. Click 'Connect WebSocket' first.", "error");
+              return;
+            }}
+
+            try {{
+              let message;
+              try {{
+                message = JSON.parse(testMessage);
+              }} catch {{
+                message = testMessage;
+              }}
+
+              wsAppend(`Sending: ${{JSON.stringify(message)}}`);
+              ws.send(JSON.stringify(message));
+              wsAppend("✓ Message sent successfully", "success");
+              wsAppend("🔴 Can send commands to target application!", "vuln");
+              
+            }} catch (e) {{
+              wsAppend(`Send error: ${{e.message}}`, "error");
+            }}
+          }});
+
+          wsCloseBtn.addEventListener("click", () => {{
+            if (ws) {{
+              ws.close();
+              wsAppend("Closing WebSocket connection...");
+            }} else {{
+              wsAppend("No active connection to close", "warning");
+            }}
+          }});
+
+          wsValidateBtn.addEventListener("click", () => {{
+            wsAppend("\\n=== Running CSWSH Validation Tests ===");
+
+            // Test 1: Origin check
+            wsAppend("Test 1: Origin Header Check");
+            wsAppend(`  Current origin: ${{window.location.origin}}`);
+            wsAppend(`  Target: ${{wsUrl}}`);
+            if (ws && ws.readyState === WebSocket.OPEN) {{
+              wsAppend("  ✗ Connection from different origin succeeded", "vuln");
+              wsAppend("  🔴 VULNERABLE: No origin validation", "vuln");
+            }} else {{
+              wsAppend("  ✓ Connection blocked or not attempted", "success");
+            }}
+
+            // Test 2: Cookie inclusion
+            wsAppend("\\nTest 2: Cookie Inclusion");
+            checkCookies();
+            if (document.cookie.length > 0 && ws && ws.readyState === WebSocket.OPEN) {{
+              wsAppend("  🔴 VULNERABLE: Cookies sent + connection open", "vuln");
+              wsAppend("  Session can be hijacked!", "vuln");
+            }} else if (document.cookie.length === 0) {{
+              wsAppend("  ℹ No cookies present (cannot test hijacking)", "info");
+            }}
+
+            // Test 3: Bidirectional communication
+            wsAppend("\\nTest 3: Bidirectional Communication");
+            wsAppend(`  Messages received: ${{messageCount}}`);
+            if (messageCount > 0) {{
+              wsAppend("  🔴 Can read sensitive data stream", "vuln");
+            }}
+
+            // Test 4: Connection persistence
+            wsAppend("\\nTest 4: Connection Persistence");
+            wsAppend(`  Connection attempts: ${{connectionAttempts}}`);
+            if (ws && ws.readyState === WebSocket.OPEN) {{
+              wsAppend("  🔴 Persistent connection maintained", "vuln");
+              wsAppend("  Attacker has ongoing access", "vuln");
+            }}
+
+            // Summary
+            wsAppend("\\n=== CSWSH Assessment ===");
+            if (ws && ws.readyState === WebSocket.OPEN) {{
+              wsAppend("🔴 VULNERABLE TO CSWSH", "vuln");
+              wsAppend("Recommendations:");
+              wsAppend("  • Validate Origin header in handshake");
+              wsAppend("  • Require CSRF tokens");
+              wsAppend("  • Check session auth before upgrade");
+              wsAppend("  • Use SameSite=Strict cookies");
+            }} else {{
+              wsAppend("✓ Not vulnerable or cannot connect", "success");
+            }}
+            wsAppend("=== Validation Complete ===\\n");
+          }});
+
+          wsClearBtn.addEventListener("click", () => {{
+            wsLog.textContent = "";
+            messageCount = 0;
+            wsMessagesEl.textContent = "📨 Messages: 0";
+            wsUpdateInfo("Log cleared", "info");
+          }});
+
+          // Initial check
+          setTimeout(() => {{
+            wsAppend("WebSocket CSWSH tester initialized");
+            wsAppend("Click 'Connect WebSocket' to start testing");
+            checkCookies();
+          }}, 500);
+        </script>
+        """,
+        height=600,
+    )
+else:
+    st.warning("Enter a WebSocket URL in the sidebar to test CSWSH vulnerability.")

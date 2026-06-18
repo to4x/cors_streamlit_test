@@ -68,9 +68,12 @@ with st.sidebar:
         message_payload = '{"stCommVersion":1,"type":"SET_TOOLBAR_ITEMS","items":[{"borderless":false,"label":"AAAHHHHAHHAHAHHA,"icon":"<img src=x onclick=alert(1)>","key":"xss_test"}]}'
     else:
         message_payload = st.text_area(
-            "postMessage payload (JSON)",
+            "postMessage payload (JSON or JavaScript)",
             value='{"type":"ping","source":"streamlit-tester"}',
             height=120,
+            help="Enter valid JSON or JavaScript expression. Examples:\n"
+                 "- JSON: {\"type\":\"ping\"}\n"
+                 "- JS with Array: {\"items\": Array(250).fill({\"label\":\"test\"})}"
         )
 
 st.info(
@@ -172,14 +175,27 @@ if popup_url.startswith(("http://", "https://")):
           const keepOpener = {keep_opener_js};
           const payloadStr = {payload_raw};
           
-          // Parse payload as JSON if possible, otherwise use as-is
+          // Try to evaluate as JavaScript expression first, then parse as JSON, then use as-is
           let payload;
+          let payloadSource = "unknown";
+          
+          // First try: evaluate as JavaScript (handles Array.fill, object literals, etc.)
           try {{
-            payload = JSON.parse(payloadStr);
-            console.log("Payload parsed as JSON object:", payload);
-          }} catch (e) {{
-            payload = payloadStr;
-            console.log("Payload used as raw string:", payload);
+            payload = eval('(' + payloadStr + ')');
+            payloadSource = "JavaScript eval";
+            console.log("Payload evaluated as JavaScript:", payload);
+          }} catch (evalError) {{
+            // Second try: parse as JSON
+            try {{
+              payload = JSON.parse(payloadStr);
+              payloadSource = "JSON parse";
+              console.log("Payload parsed as JSON:", payload);
+            }} catch (jsonError) {{
+              // Third fallback: use as raw string
+              payload = payloadStr;
+              payloadSource = "raw string";
+              console.log("Payload used as raw string:", payload);
+            }}
           }}
 
           let popupRef = null;
@@ -307,12 +323,25 @@ if popup_url.startswith(("http://", "https://")):
             
             try {{
               const targetOrigin = expectedOrigin || "*";
-              const payloadType = typeof payload === 'object' ? 'JSON object' : 'string';
+              const payloadType = typeof payload === 'object' ? 'object' : typeof payload;
               
               append(`Sending postMessage to popup...`);
               append(`Target origin: ${{targetOrigin}}`);
+              append(`Payload source: ${{payloadSource}}`);
               append(`Payload type: ${{payloadType}}`);
-              append(`Payload: ${{JSON.stringify(payload)}}`);
+              
+              // Show a preview of the payload (truncate if too long)
+              const payloadPreview = JSON.stringify(payload);
+              if (payloadPreview.length > 200) {{
+                append(`Payload: ${{payloadPreview.substring(0, 200)}}... (truncated)`);
+              }} else {{
+                append(`Payload: ${{payloadPreview}}`);
+              }}
+              
+              // Log array length if it's an items array
+              if (payload && payload.items && Array.isArray(payload.items)) {{
+                append(`Items array length: ${{payload.items.length}}`);
+              }}
               
               popupRef.postMessage(payload, targetOrigin);
               
@@ -371,11 +400,16 @@ if popup_url.startswith(("http://", "https://")):
             }}
             
             // Test 5: Configuration
-            const payloadType = typeof payload === 'object' ? 'JSON object' : 'string';
+            const payloadType = typeof payload === 'object' ? 'object' : typeof payload;
             append(`Expected origin: ${{expectedOrigin}}`);
             append(`Keep opener: ${{keepOpener}}`);
             append(`Popup URL: ${{popupUrl}}`);
+            append(`Payload source: ${{payloadSource}}`);
             append(`Payload type: ${{payloadType}}`);
+            
+            if (payload && payload.items && Array.isArray(payload.items)) {{
+              append(`Items array length: ${{payload.items.length}}`);
+            }}
             
             append("=== Validation Complete ===\\n");
             updateStatus("Validation tests completed", "info");
@@ -391,6 +425,12 @@ if popup_url.startswith(("http://", "https://")):
             validateIframeContext();
             updateStatus("Ready for testing", "info");
             append("System initialized. Hover over 'Open popup' button to start.");
+            append(`Payload processing: ${{payloadSource}}`);
+            
+            // Warn if payload looks like JavaScript but wasn't evaluated
+            if (payloadSource === "raw string" && payloadStr.includes("Array(")) {{
+              append("⚠ Payload contains 'Array(' but wasn't evaluated as JavaScript", "warning");
+            }}
           }}, 500);
         </script>
         """,

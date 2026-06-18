@@ -68,15 +68,7 @@ if popup_url.startswith(("http://", "https://")):
     popup_url_js = json.dumps(popup_url)
     target_origin_js = json.dumps(target_origin.strip())
     keep_opener_js = "true" if keep_opener_link else "false"
-
-    # Double-escape payload: serialize to JSON, then escape as a JS string literal
-    try:
-        payload_obj = json.loads(message_payload)
-        payload_json = json.dumps(payload_obj, separators=(',', ':'))
-        # Second json.dumps escapes the JSON string for safe injection into JavaScript
-        payload_escaped = json.dumps(payload_json)
-    except:
-        payload_escaped = json.dumps("{}")
+    payload_escaped = json.dumps(message_payload)
 
     components.html(
         f"""
@@ -98,7 +90,7 @@ if popup_url.startswith(("http://", "https://")):
           const popupUrl = {popup_url_js};
           const expectedOrigin = {target_origin_js};
           const keepOpener = {keep_opener_js};
-          const payload = JSON.parse({payload_escaped});
+          const payload = {payload_escaped};
 
           let popupRef = null;
 

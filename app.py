@@ -39,7 +39,7 @@ with st.sidebar:
     )
     
     if use_hardcoded:
-        message_payload = '{"stCommVersion":1,"type":"SET_TOOLBAR_ITEMS","items":[{"borderless":false,"label":"<script>alert(1)</script>","icon":"<img src=x onerror=alert(1)>","key":"xss_test"}]}'
+        message_payload = '{"stCommVersion":1,"type":"SET_TOOLBAR_ITEMS","items":[{"borderless":false,"label":"<script>alert(1)</script>","icon":"<img src=x onclick=alert(1)>","key":"xss_test"}]}'
     else:
         message_payload = st.text_area(
             "postMessage payload (JSON)",

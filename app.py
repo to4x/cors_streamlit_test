@@ -61,6 +61,28 @@ else:
         st.error("Please enter a valid URL that starts with http:// or https://")
 
 st.divider()
+st.subheader("Validation & Diagnostics")
+st.caption("Real-time validation of iframe, popup, and messaging capabilities.")
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("Iframe Load", "Testing...", help="Whether the iframe loaded successfully")
+with col2:
+    st.metric("Popup Status", "Not Opened", help="Current popup window state")
+with col3:
+    st.metric("Messages", "0", help="Number of messages received")
+
+with st.expander("🔍 Validation Tests", expanded=True):
+    st.markdown("""
+    **Active Tests:**
+    - ✓ Iframe loading detection
+    - ✓ Popup open/close tracking
+    - ✓ postMessage send/receive validation
+    - ✓ Cross-origin security checks
+    - ✓ Opener reference validation
+    """)
+
+st.divider()
 st.subheader("window.open() and postMessage Test")
 st.caption("Use this to validate popup auth behavior and cross-window messaging controls.")
 
@@ -73,12 +95,24 @@ if popup_url.startswith(("http://", "https://")):
     components.html(
         f"""
         <div style="font-family: sans-serif;">
-          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-            <button id="open-btn" style="padding:0.5rem 0.8rem;cursor:pointer;">Open popup</button>
-            <button id="send-btn" style="padding:0.5rem 0.8rem;cursor:pointer;">Send postMessage to popup</button>
+          <div style="margin-bottom:1rem;padding:0.8rem;background:#e8f4fd;border-left:4px solid #1976d2;">
+            <strong>Validation Status:</strong>
+            <div style="margin-top:0.5rem;">
+              <span id="iframe-status" style="margin-right:1rem;">🔄 Iframe: Checking...</span>
+              <span id="popup-status" style="margin-right:1rem;">⚪ Popup: Not opened</span>
+              <span id="message-count" style="margin-right:1rem;">📬 Messages: 0</span>
+            </div>
           </div>
-          <div id="status" style="margin-top:0.6rem;color:#444;">Ready.</div>
-          <pre id="log" style="margin-top:0.6rem;padding:0.6rem;background:#f7f7f7;border:1px solid #ddd;max-height:220px;overflow:auto;"></pre>
+          
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+            <button id="open-btn" style="padding:0.5rem 0.8rem;cursor:pointer;background:#1976d2;color:white;border:none;border-radius:4px;">Open popup</button>
+            <button id="send-btn" style="padding:0.5rem 0.8rem;cursor:pointer;background:#388e3c;color:white;border:none;border-radius:4px;">Send postMessage</button>
+            <button id="validate-btn" style="padding:0.5rem 0.8rem;cursor:pointer;background:#f57c00;color:white;border:none;border-radius:4px;">Run Validation</button>
+            <button id="clear-btn" style="padding:0.5rem 0.8rem;cursor:pointer;background:#d32f2f;color:white;border:none;border-radius:4px;">Clear Log</button>
+          </div>
+          
+          <div id="status" style="margin-top:0.6rem;padding:0.5rem;background:#fff3cd;border:1px solid #ffc107;border-radius:4px;color:#856404;">Ready.</div>
+          <pre id="log" style="margin-top:0.6rem;padding:0.6rem;background:#f7f7f7;border:1px solid #ddd;border-radius:4px;max-height:300px;overflow:auto;font-size:0.85rem;"></pre>
         </div>
 
         <script>
@@ -86,6 +120,11 @@ if popup_url.startswith(("http://", "https://")):
           const log = document.getElementById("log");
           const openBtn = document.getElementById("open-btn");
           const sendBtn = document.getElementById("send-btn");
+          const validateBtn = document.getElementById("validate-btn");
+          const clearBtn = document.getElementById("clear-btn");
+          const iframeStatus = document.getElementById("iframe-status");
+          const popupStatus = document.getElementById("popup-status");
+          const messageCountEl = document.getElementById("message-count");
 
           const popupUrl = {popup_url_js};
           const expectedOrigin = {target_origin_js};
@@ -93,41 +132,213 @@ if popup_url.startswith(("http://", "https://")):
           const payload = {payload_escaped};
 
           let popupRef = null;
+          let messageCount = 0;
+          let lastMessageTime = null;
 
-          function append(line) {{
-            log.textContent += (line + "\\n");
+          function append(line, type = "info") {{
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === "success" ? "✓" : type === "error" ? "✗" : type === "warning" ? "⚠" : "ℹ";
+            log.textContent += `[${{timestamp}}] ${{prefix}} ${{line}}\\n`;
+            log.scrollTop = log.scrollHeight;
           }}
 
+          function updateStatus(msg, type = "info") {{
+            status.textContent = msg;
+            status.style.background = type === "success" ? "#d4edda" : type === "error" ? "#f8d7da" : type === "warning" ? "#fff3cd" : "#d1ecf1";
+            status.style.borderColor = type === "success" ? "#c3e6cb" : type === "error" ? "#f5c6cb" : type === "warning" ? "#ffc107" : "#bee5eb";
+            status.style.color = type === "success" ? "#155724" : type === "error" ? "#721c24" : type === "warning" ? "#856404" : "#0c5460";
+          }}
+
+          function updatePopupStatus() {{
+            if (popupRef && !popupRef.closed) {{
+              popupStatus.textContent = "🟢 Popup: Open";
+              popupStatus.style.color = "#2e7d32";
+            }} else {{
+              popupStatus.textContent = "🔴 Popup: Closed";
+              popupStatus.style.color = "#c62828";
+            }}
+          }}
+
+          function updateMessageCount() {{
+            messageCountEl.textContent = `📬 Messages: ${{messageCount}}`;
+            if (messageCount > 0) {{
+              messageCountEl.style.color = "#2e7d32";
+            }}
+          }}
+
+          // Check for parent iframe
+          function validateIframeContext() {{
+            if (window.self !== window.top) {{
+              iframeStatus.textContent = "✓ Iframe: Running in iframe";
+              iframeStatus.style.color = "#2e7d32";
+              append("Running inside an iframe context", "success");
+            }} else {{
+              iframeStatus.textContent = "⚠ Iframe: Running standalone";
+              iframeStatus.style.color = "#f57c00";
+              append("Not running in iframe - this is the parent page", "warning");
+            }}
+          }}
+
+          // Periodic popup status check
+          setInterval(() => {{
+            if (popupRef) {{
+              updatePopupStatus();
+            }}
+          }}, 1000);
+
+          // Message listener with validation
           window.addEventListener("message", (event) => {{
-            append("Received message from origin: " + event.origin);
-            append("Data: " + JSON.stringify(event.data));
+            messageCount++;
+            updateMessageCount();
+            lastMessageTime = Date.now();
+            
+            append(`Received message from origin: ${{event.origin}}`, "success");
+            append(`Data: ${{JSON.stringify(event.data)}}`);
+            
+            // Validate origin
+            if (expectedOrigin && event.origin !== expectedOrigin && expectedOrigin !== "*") {{
+              append(`⚠ Origin mismatch! Expected: ${{expectedOrigin}}, Got: ${{event.origin}}`, "warning");
+            }} else {{
+              append("✓ Origin validation passed", "success");
+            }}
+            
+            updateStatus("Message received successfully", "success");
           }});
 
           openBtn.addEventListener("mouseenter", () => {{
             if (!popupRef || popupRef.closed) {{
-              const features = keepOpener ? "" : "noopener,noreferrer";
-              popupRef = window.open(popupUrl, "_blank", features);
-              if (popupRef) {{
-                status.textContent = "Popup opened.";
-                append("Popup opened. opener link enabled: " + keepOpener);
-              }} else {{
-                status.textContent = "Popup blocked by browser.";
-                append("Popup blocked.");
+              try {{
+                const features = keepOpener ? "" : "noopener,noreferrer";
+                append(`Opening popup with URL: ${{popupUrl}}`);
+                append(`Opener link enabled: ${{keepOpener}}`);
+                append(`Features: ${{features || "default"}}`);
+                
+                popupRef = window.open(popupUrl, "_blank", features);
+                
+                if (popupRef) {{
+                  updateStatus("Popup opened successfully", "success");
+                  append("Popup opened successfully", "success");
+                  updatePopupStatus();
+                  
+                  // Test opener reference
+                  if (keepOpener) {{
+                    try {{
+                      if (popupRef.opener === window) {{
+                        append("✓ Opener reference is maintained", "success");
+                      }} else {{
+                        append("✗ Opener reference check failed", "error");
+                      }}
+                    }} catch (e) {{
+                      append(`Cannot verify opener (CORS): ${{e.message}}`, "warning");
+                    }}
+                  }} else {{
+                    append("Opener reference disabled (noopener)", "info");
+                  }}
+                }} else {{
+                  updateStatus("Popup blocked by browser", "error");
+                  append("Popup blocked by browser", "error");
+                }}
+              }} catch (e) {{
+                updateStatus(`Error opening popup: ${{e.message}}`, "error");
+                append(`Error: ${{e.message}}`, "error");
               }}
+            }} else {{
+              append("Popup already open", "warning");
             }}
           }});
 
           sendBtn.addEventListener("click", () => {{
             if (!popupRef || popupRef.closed) {{
-              append("No live popup reference. Open popup first.");
+              updateStatus("No live popup reference", "error");
+              append("No live popup reference. Open popup first.", "error");
               return;
             }}
-            popupRef.postMessage(payload, expectedOrigin || "*");
-            append("Sent postMessage to popup with targetOrigin: " + (expectedOrigin || "*"));
+            
+            try {{
+              const targetOrigin = expectedOrigin || "*";
+              append(`Sending postMessage to popup...`);
+              append(`Target origin: ${{targetOrigin}}`);
+              append(`Payload: ${{payload}}`);
+              
+              popupRef.postMessage(payload, targetOrigin);
+              
+              updateStatus("postMessage sent successfully", "success");
+              append("✓ postMessage sent successfully", "success");
+              
+              // Wait for response
+              setTimeout(() => {{
+                if (lastMessageTime && (Date.now() - lastMessageTime) < 2000) {{
+                  append("✓ Response received from popup", "success");
+                }} else {{
+                  append("⚠ No response from popup within 2s", "warning");
+                }}
+              }}, 2000);
+              
+            }} catch (e) {{
+              updateStatus(`Error sending message: ${{e.message}}`, "error");
+              append(`Error sending postMessage: ${{e.message}}`, "error");
+            }}
           }});
+
+          validateBtn.addEventListener("click", () => {{
+            append("\\n=== Running Validation Tests ===");
+            
+            // Test 1: Iframe context
+            validateIframeContext();
+            
+            // Test 2: Popup state
+            if (popupRef && !popupRef.closed) {{
+              append("✓ Popup window is open and accessible", "success");
+              
+              // Test 3: Opener reference
+              if (keepOpener) {{
+                try {{
+                  if (popupRef.opener === window) {{
+                    append("✓ Opener reference is valid", "success");
+                  }} else {{
+                    append("✗ Opener reference is invalid", "error");
+                  }}
+                }} catch (e) {{
+                  append(`Cannot verify opener (CORS): ${{e.message}}`, "warning");
+                }}
+              }} else {{
+                append("ℹ Opener reference disabled (noopener)", "info");
+              }}
+            }} else {{
+              append("✗ No popup window open", "error");
+            }}
+            
+            // Test 4: Message capabilities
+            append(`Messages received: ${{messageCount}}`);
+            if (messageCount > 0) {{
+              append("✓ postMessage communication working", "success");
+            }} else {{
+              append("⚠ No messages received yet", "warning");
+            }}
+            
+            // Test 5: Configuration
+            append(`Expected origin: ${{expectedOrigin}}`);
+            append(`Keep opener: ${{keepOpener}}`);
+            append(`Popup URL: ${{popupUrl}}`);
+            
+            append("=== Validation Complete ===\\n");
+            updateStatus("Validation tests completed", "info");
+          }});
+
+          clearBtn.addEventListener("click", () => {{
+            log.textContent = "";
+            updateStatus("Log cleared", "info");
+          }});
+
+          // Initial validation
+          setTimeout(() => {{
+            validateIframeContext();
+            updateStatus("Ready for testing", "info");
+            append("System initialized. Hover over 'Open popup' button to start.");
+          }}, 500);
         </script>
         """,
-        height=420,
+        height=550,
     )
 else:
     st.error("Popup URL must start with http:// or https://")

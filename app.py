@@ -32,6 +32,32 @@ with st.sidebar:
         placeholder="https://target-app.com",
     )
     
+    st.divider()
+    
+    with st.expander("🔧 Troubleshooting Guide"):
+        st.markdown("""
+        **Common Issues:**
+        
+        1. **Popup Blocked**: Browser may block popups
+           - Check browser popup settings
+           - User interaction required (hover over button)
+        
+        2. **CORS Errors**: Cross-origin restrictions
+           - Use `*` as target origin for testing
+           - Check target site CORS policy
+        
+        3. **No Messages Received**:
+           - Verify target origin matches exactly
+           - Check if target site sends messages
+           - Use validation button to diagnose
+        
+        4. **Opener Reference Lost**:
+           - Enable "Keep opener link" toggle
+           - Note: Security risk in production
+        """)
+    
+    st.divider()
+    
     use_hardcoded = st.toggle(
         "Use hardcoded XSS test payload",
         value=False,
@@ -75,12 +101,27 @@ with col3:
 with st.expander("🔍 Validation Tests", expanded=True):
     st.markdown("""
     **Active Tests:**
-    - ✓ Iframe loading detection
-    - ✓ Popup open/close tracking
-    - ✓ postMessage send/receive validation
-    - ✓ Cross-origin security checks
-    - ✓ Opener reference validation
+    - ✓ **Iframe Context Detection**: Verifies if running in iframe or standalone
+    - ✓ **Popup Open/Close Tracking**: Real-time popup window state monitoring
+    - ✓ **postMessage Send/Receive**: Validates cross-window messaging
+    - ✓ **Cross-Origin Security**: Checks origin validation and CORS policy
+    - ✓ **Opener Reference**: Verifies window.opener accessibility
+    
+    **How to Test:**
+    1. Set your target URL and popup URL in the sidebar
+    2. Configure security settings (opener link, target origin)
+    3. Hover over "Open popup" button to launch popup
+    4. Click "Send postMessage" to test messaging
+    5. Click "Run Validation" to see comprehensive diagnostics
+    
+    **Expected Behaviors:**
+    - Popup should open on hover (may require popup permission)
+    - Messages should appear in the log with timestamps
+    - Origin validation should pass if configured correctly
+    - Opener reference should work if "Keep opener link" is enabled
     """)
+
+    st.info("💡 Use the validation button in the test interface below to run all diagnostic checks.")
 
 st.divider()
 st.subheader("window.open() and postMessage Test")

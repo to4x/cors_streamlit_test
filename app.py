@@ -59,13 +59,13 @@ if popup_url.startswith(("http://", "https://")):
     target_origin_js = json.dumps(target_origin.strip())
     keep_opener_js = "true" if keep_opener_link else "false"
 
-    # Parse and compact the payload, then escape for JS injection
+    # Parse and compact the payload for direct JS injection (no JSON.parse needed)
     try:
         payload_obj = json.loads(message_payload)
-        payload_compact = json.dumps(payload_obj, separators=(',', ':'))
+        # Serialize directly to JS object literal (not a string)
+        payload_js = json.dumps(payload_obj, separators=(',', ':'))
     except:
-        payload_compact = "{}"
-    payload_escaped = json.dumps(payload_compact)
+        payload_js = "{}"
 
     components.html(
         f"""
@@ -87,7 +87,7 @@ if popup_url.startswith(("http://", "https://")):
           const popupUrl = {popup_url_js};
           const expectedOrigin = {target_origin_js};
           const keepOpener = {keep_opener_js};
-          const payload = JSON.parse({payload_escaped});
+          const payload = {payload_js};  // Direct object literal - no parsing needed
 
           let popupRef = null;
 

@@ -196,3 +196,100 @@ Streamlit uses WebSockets internally for app communication:
 - Production: `wss://your-app.streamlit.app/_stcore/stream`
 
 Testing your Streamlit app's WebSocket endpoint helps identify if it's vulnerable to CSWSH attacks.
+
+## WebSocket Relay Attack (Advanced)
+
+### What is WebSocket Relay Attack?
+
+This is a **more sophisticated and dangerous** variant of CSWSH that combines popup-based session access with WebSocket hijacking.
+
+**Attack Flow:**
+```
+Attacker Site (evil.com)
+    ↓ window.open() with opener
+Victim Site Popup (target-app.com)
+    ↓ Establishes WebSocket
+Target WebSocket Server (target-app.com/ws)
+    ↑ All data relayed via postMessage
+Attacker Site receives proxied data
+```
+
+### Why It's More Dangerous Than Direct CSWSH
+
+| Direct CSWSH | Popup-Proxied WebSocket Relay |
+|--------------|-------------------------------|
+| Blocked if origin validated | **Bypasses origin check** (popup is same-origin) |
+| Requires cookies from attacker's origin | **Uses victim's legitimate session** |
+| Often detectable by monitoring | **Appears as legitimate traffic** |
+| Limited by CORS restrictions | **No CORS restrictions** (same-origin popup) |
+| Single attack attempt | **Persistent bidirectional channel** |
+
+### Testing WebSocket Relay Attack
+
+1. **Enable in Sidebar**:
+   - Toggle "Enable WebSocket relay via popup"
+   - Set popup URL (should be target application)
+   - Set WebSocket URL for relay
+
+2. **Execute Attack Simulation**:
+   - Click "Open Relay Popup" → Opens victim site with opener reference
+   - Click "Inject WS Relay Code" → Attempts to inject relay script
+   - Monitor log for relayed WebSocket messages
+   - Click "Send Command via Popup" → Test command injection
+
+3. **Observe Attack Components**:
+   - **Session Inheritance**: Popup shares victim's cookies
+   - **WebSocket Establishment**: Popup connects using victim's session
+   - **Data Exfiltration**: All WS messages relayed via postMessage
+   - **Command Injection**: Attacker sends commands through popup proxy
+
+4. **Interpret Results**:
+   - 💀 **Critical Vulnerability**: If messages are relayed successfully
+   - ✓ **Protected**: If opener reference blocked or injection fails
+   - ⚠ **Partial Protection**: If some but not all attack steps succeed
+
+### Real-World Impact
+
+This attack is particularly dangerous for:
+- **OAuth/OIDC flows**: Popup-based authentication with WebSocket callbacks
+- **Real-time collaboration**: Shared documents, whiteboards, code editors
+- **Financial platforms**: Trading terminals with live market data
+- **Chat applications**: Messaging systems with WebSocket connections
+- **Live dashboards**: Monitoring systems with real-time updates
+- **Gaming platforms**: Multiplayer games with WebSocket state sync
+
+### Mitigation Strategies
+
+**Essential Protections:**
+1. **Always use `noopener,noreferrer`** for all `window.open()` calls
+2. **Validate WebSocket Origin header** during handshake
+3. **Implement CSRF tokens** for WebSocket connections
+4. **Use SameSite=Strict cookies** to prevent cross-site cookie inclusion
+5. **Additional authentication** beyond cookies for sensitive WebSocket endpoints
+6. **Monitor cross-window communication** patterns for anomalies
+
+**Code Example:**
+```javascript
+// Safe popup opening
+window.open(url, '_blank', 'noopener,noreferrer');
+
+// WebSocket handshake validation (server-side)
+if (origin !== expectedOrigin) {
+  connection.close(1008, 'Origin not allowed');
+  return;
+}
+```
+
+### Cross-Origin Restrictions
+
+**Note**: The relay attack demonstration may be blocked by cross-origin restrictions if:
+- Popup URL is different origin than testing site
+- Content Security Policy blocks script injection
+- Browser security features prevent cross-window access
+
+**The attack succeeds when:**
+- Popup is same-origin as attacker site
+- Or attacker controls both sites
+- Or browser extension is used for injection
+
+This tool demonstrates the **concept and detection** of the vulnerability. Real-world exploitation would work when attacker and victim origins align or attacker has code execution capability.

